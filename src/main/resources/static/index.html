@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini-Konto</title>
+<style>
+  :root {
+    --bg: #f3f4f6; --card: #ffffff; --text: #16181d; --muted: #646b78; --line: #e3e6eb;
+    --accent: #c8102e; --accent-soft: #fde8eb; --ok: #1f8a4c; --err: #c8102e; --input: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111318; --card: #1b1e25; --text: #eceef2; --muted: #9aa1ad; --line: #2b3039;
+      --accent: #ff4d63; --accent-soft: #3a1d23; --ok: #4cc27f; --err: #ff6b7d; --input: #14161b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { background: var(--accent); color: #fff; padding: 16px 24px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 22px; }
+  header span { opacity: .85; font-size: 14px; }
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 20px; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 20px; }
+  h2 { margin: 0 0 12px; font-size: 17px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 4px; }
+  input, select { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); font: inherit; }
+  button { margin-top: 12px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button:hover { filter: brightness(1.08); }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .accounts { list-style: none; margin: 0; padding: 0; }
+  .accounts li { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .accounts li:hover { background: var(--bg); }
+  .accounts li.active { background: var(--accent-soft); border-color: var(--accent); }
+  .accounts .who { font-weight: 600; }
+  .accounts .id { color: var(--muted); font-size: 12px; }
+  .accounts .bal { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .balance { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+  .sub { color: var(--muted); margin: 0; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+  td.amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .in { color: var(--ok); } .out { color: var(--err); }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 18px; border-radius: 10px; color: #fff; font-weight: 600; max-width: 90vw; display: none; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+  #toast.ok { background: var(--ok); } #toast.err { background: var(--err); }
+  #detail[hidden] { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mini-Konto</h1>
+  <span>Kontoverwaltung · Einzahlung · Auszahlung · Überweisung</span>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="card">
+      <h2>Neues Konto eröffnen</h2>
+      <form id="openForm">
+        <label for="owner">Kontoinhaber</label>
+        <input id="owner" placeholder="z. B. Anna Schmidt" autocomplete="off">
+        <label for="initial">Startguthaben (€)</label>
+        <input id="initial" placeholder="0,00" inputmode="decimal">
+        <button type="submit">Konto eröffnen</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Konten</h2>
+      <ul class="accounts" id="accountList"></ul>
+      <p class="empty" id="noAccounts">Noch keine Konten. Eröffne oben das erste Konto.</p>
+    </div>
+  </aside>
+
+  <main>
+    <div class="card" id="placeholder">
+      <h2>Kein Konto ausgewählt</h2>
+      <p class="sub">Wähle links ein Konto aus, um Geld ein- und auszuzahlen oder zu überweisen.</p>
+    </div>
+
+    <section id="detail" hidden>
+      <div class="card">
+        <p class="sub" id="dOwner"></p>
+        <div class="balance" id="dBalance"></div>
+        <p class="sub" id="dId"></p>
+      </div>
+
+      <div class="row">
+        <div class="card">
+          <h2>Einzahlen / Auszahlen</h2>
+          <label for="amount">Betrag (€)</label>
+          <input id="amount" placeholder="0,00" inputmode="decimal">
+          <button id="depositBtn">Einzahlen</button>
+          <button id="withdrawBtn" class="secondary">Auszahlen</button>
+        </div>
+        <div class="card">
+          <h2>Überweisen</h2>
+          <form id="transferForm">
+            <label for="toAccount">An Konto</label>
+            <select id="toAccount"></select>
+            <label for="tAmount">Betrag (€)</label>
+            <input id="tAmount" placeholder="0,00" inputmode="decimal">
+            <button type="submit">Überweisen</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Umsätze</h2>
+        <table>
+          <thead><tr><th>Datum</th><th>Von / An</th><th style="text-align:right">Betrag</th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+        <p class="empty" id="noHistory">Noch keine Überweisungen.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const eur = v => Number(v).toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+let accounts = [];
+let selectedId = null;
+
+function toast(msg, ok = true) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = ok ? "ok" : "err";
+  t.style.display = "block";
+  clearTimeout(t._h);
+  t._h = setTimeout(() => (t.style.display = "none"), 3500);
+}
+
+// "25,50" -> "25.50"; returns null if it is not a number at all
+function parseAmount(text) {
+  const s = String(text).trim().replace(/\s/g, "").replace(",", ".");
+  return /^-?\d+(\.\d+)?$/.test(s) ? s : null;
+}
+
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body
+  });
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.detail) || "Fehler " + res.status);
+  return data;
+}
+
+async function loadAccounts() {
+  accounts = await api("GET", "/api/accounts");
+  const list = $("accountList");
+  list.innerHTML = "";
+  for (const a of accounts) {
+    const li = document.createElement("li");
+    if (a.id === selectedId) li.className = "active";
+    li.innerHTML = `<div><div class="who"></div><div class="id">Konto-Nr. ${a.id}</div></div><div class="bal">${eur(a.balance)}</div>`;
+    li.querySelector(".who").textContent = a.owner;
+    li.onclick = () => select(a.id);
+    list.appendChild(li);
+  }
+  $("noAccounts").hidden = accounts.length > 0;
+}
+
+async function select(id) {
+  selectedId = id;
+  await loadAccounts();
+  const a = accounts.find(x => x.id === id);
+  if (!a) return;
+  $("placeholder").hidden = true;
+  $("detail").hidden = false;
+  $("dOwner").textContent = a.owner;
+  $("dBalance").textContent = eur(a.balance);
+  $("dId").textContent = "Konto-Nr. " + a.id;
+
+  const sel = $("toAccount");
+  sel.innerHTML = "";
+  const others = accounts.filter(x => x.id !== id);
+  for (const o of others) {
+    const opt = document.createElement("option");
+    opt.value = o.id;
+    opt.textContent = `${o.owner} (Nr. ${o.id})`;
+    sel.appendChild(opt);
+  }
+  if (!others.length) {
+    const opt = document.createElement("option");
+    opt.textContent = "Kein anderes Konto vorhanden";
+    opt.disabled = true;
+    sel.appendChild(opt);
+  }
+  await loadHistory(id);
+}
+
+async function loadHistory(id) {
+  const rows = await api("GET", `/api/accounts/${id}/transfers`);
+  const names = Object.fromEntries(accounts.map(a => [a.id, a.owner]));
+  const body = $("history");
+  body.innerHTML = "";
+  for (const t of rows) {
+    const incoming = t.toAccountId === id;
+    const other = incoming ? t.fromAccountId : t.toAccountId;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td></td><td></td><td class="amt ${incoming ? "in" : "out"}"></td>`;
+    tr.children[0].textContent = new Date(t.createdAt).toLocaleString("de-DE");
+    tr.children[1].textContent = (incoming ? "Von " : "An ") + (names[other] || "Konto") + " (Nr. " + other + ")";
+    tr.children[2].textContent = (incoming ? "+ " : "− ") + eur(t.amount);
+    body.appendChild(tr);
+  }
+  $("noHistory").hidden = rows.length > 0;
+}
+
+$("openForm").onsubmit = async e => {
+  e.preventDefault();
+  const owner = $("owner").value;
+  const raw = $("initial").value.trim();
+  const initial = raw === "" ? "0" : parseAmount(raw);
+  if (initial === null) return toast("Bitte einen gültigen Betrag eingeben, z. B. 100,00", false);
+  try {
+    const a = await api("POST", "/api/accounts", `{"owner":${JSON.stringify(owner)},"initialDeposit":${initial}}`);
+    $("owner").value = ""; $("initial").value = "";
+    toast(`Konto für ${a.owner} eröffnet (Nr. ${a.id})`);
+    await select(a.id);
+  } catch (err) { toast(err.message, false); }
+};
+
+async function move(kind) {
+  const amount = parseAmount($("amount").value);
+  if (amount === null) return toast("Bitte einen gültigen Betrag eingeben, z. B. 25,50", false);
+  try {
+    await api("POST", `/api/accounts/${selectedId}/${kind}`, `{"amount":${amount}}`);
+    $("amount").value = "";
+    toast(kind === "deposit" ? `${eur(amount)} eingezahlt` : `${eur(amount)} ausgezahlt`);
+    await select(selectedId);
+  } catch (err) { toast(err.message, false); }
+}
+$("depositBtn").onclick = () => move("deposit");
+$("withdrawBtn").onclick = () => move("withdraw");
+
+$("transferForm").onsubmit = async e => {
+  e.preventDefault();
+  const to = Number($("toAccount").value);
+  if (!to) return toast("Es gibt kein Empfängerkonto. Eröffne zuerst ein zweites Konto.", false);
+  const amount = parseAmount($("tAmount").value);
+  if (amount === null) return toast("Bitte einen gültigen Betrag eingeben, z. B. 25,50", false);
+  try {
+    await api("POST", "/api/transfers", `{"fromAccountId":${selectedId},"toAccountId":${to},"amount":${amount}}`);
+    $("tAmount").value = "";
+    toast(`${eur(amount)} überwiesen`);
+    await select(selectedId);
+  } catch (err) { toast(err.message, false); }
+};
+
+loadAccounts().catch(err => toast("Server nicht erreichbar: " + err.message, false));
+</script>
+</body>
+</html>
